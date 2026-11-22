@@ -21,7 +21,7 @@ jobs:
           gradle-version: current
 
       # Repo me jitni bhi .zip hain, har ek ko extract karke build karta hai (ek zip = ek jar).
-      # Normal version + no-watermark version dono rakhoge to dono ki jar milengi.
+      # Watermark + no-watermark dono zip rakho to dono jar ek hi artifact me milengi.
       - name: Build every zip
         run: |
           set -e
@@ -52,6 +52,12 @@ jobs:
             i=$((i+1))
           done
           ls -la /tmp/out
+
+      - name: Check both jars exist
+        run: |
+          n=$(ls /tmp/out/*.jar | wc -l)
+          echo "jars: $n"
+          [ "$n" -ge 2 ] || { echo "ERROR: 2 jar expected, mili $n"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
