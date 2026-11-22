@@ -1,4 +1,4 @@
-name: Build GUI Recorder (from zip)
+name: Build LMC Recorder (from zip)
 
 on:
   push:
@@ -11,20 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Repo me jo bhi .zip hai use extract karta hai (extract karke upload karne ki zarurat nahi)
-      - name: Unzip mod
-        run: |
-          Z=$(find . -name "*.zip" -not -path "./.git/*" | head -1)
-          if [ -z "$Z" ]; then echo "ERROR: repo me koi .zip nahi mili"; ls -la; exit 1; fi
-          echo "Using zip: $Z"
-          mkdir -p /tmp/mod
-          unzip -q "$Z" -d /tmp/mod
-          B=$(find /tmp/mod -name build.gradle | head -1)
-          if [ -z "$B" ]; then echo "ERROR: zip ke andar build.gradle nahi mili"; find /tmp/mod | head -40; exit 1; fi
-          D=$(dirname "$B")
-          echo "Project dir: $D"
-          echo "PROJ=$D" >> $GITHUB_ENV
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -34,19 +20,40 @@ jobs:
         with:
           gradle-version: current
 
-      - name: Pick latest Loom
-        working-directory: ${{ env.PROJ }}
+      # Repo me jitni bhi .zip hain, har ek ko extract karke build karta hai (ek zip = ek jar).
+      # Normal version + no-watermark version dono rakhoge to dono ki jar milengi.
+      - name: Build every zip
         run: |
+          set -e
+          mkdir -p /tmp/mod /tmp/out
+          mapfile -t ZIPS < <(find . -name "*.zip" -not -path "./.git/*" | sort)
+          if [ ${#ZIPS[@]} -eq 0 ]; then echo "ERROR: repo me koi .zip nahi mili"; ls -la; exit 1; fi
+
           V=$(curl -fsSL https://maven.fabricmc.net/net/fabricmc/fabric-loom/maven-metadata.xml | grep -oP '(?<=<release>)[^<]+' || true)
           echo "Loom from maven: '$V'"
-          if [ -n "$V" ]; then sed -i "s/^loom_version=.*/loom_version=$V/" gradle.properties; fi
-          cat gradle.properties
 
-      - name: Build
-        working-directory: ${{ env.PROJ }}
-        run: gradle build --no-daemon --stacktrace
+          i=0
+          for Z in "${ZIPS[@]}"; do
+            echo "=============== Building zip: $Z"
+            d=/tmp/mod/$i
+            mkdir -p "$d"
+            unzip -q "$Z" -d "$d"
+            B=$(find "$d" -name build.gradle | head -1)
+            if [ -z "$B" ]; then echo "ERROR: $Z ke andar build.gradle nahi mili"; find "$d" | head -40; exit 1; fi
+            D=$(dirname "$B")
+            if [ -n "$V" ]; then sed -i "s/^loom_version=.*/loom_version=$V/" "$D/gradle.properties"; fi
+            (cd "$D" && gradle build --no-daemon --stacktrace)
+            for f in "$D"/build/libs/*.jar; do
+              case "$f" in
+                *-sources.jar|*-dev.jar|*-javadoc.jar) ;;
+                *) cp "$f" /tmp/out/ ;;
+              esac
+            done
+            i=$((i+1))
+          done
+          ls -la /tmp/out
 
       - uses: actions/upload-artifact@v4
         with:
-          name: guirec-mod
-          path: ${{ env.PROJ }}/build/libs/*.jar
+          name: LMC-Recorder
+          path: /tmp/out/*.jar
